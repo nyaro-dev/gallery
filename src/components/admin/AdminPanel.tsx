@@ -2,20 +2,20 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BUCKET, supabase, type DbChapter, type DbPhoto } from "@/lib/supabase";
+import { compressImage } from "@/lib/compress-image";
+import {
+  BUCKET,
+  sortPhotos,
+  supabase,
+  type DbChapter,
+  type DbPhoto,
+} from "@/lib/supabase";
 import PhotoCard from "./PhotoCard";
 import UploadZone from "./UploadZone";
 
 type Status = "loading" | "ready" | "setup-needed";
 
 type Upload = { tempId: string; fileName: string };
-
-function sortPhotos(list: DbPhoto[]) {
-  return [...list].sort(
-    (a, b) =>
-      a.year.localeCompare(b.year) || a.created_at.localeCompare(b.created_at)
-  );
-}
 
 export default function AdminPanel() {
   const [status, setStatus] = useState<Status>("loading");
@@ -37,13 +37,16 @@ export default function AdminPanel() {
   }, []);
 
   const [attempt, setAttempt] = useState(0);
+  // false tant que la migration photo-position n'a pas été exécutée
+  const [positionSupported, setPositionSupported] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
       supabase.from("chapters").select("*").order("position").order("created_at"),
       supabase.from("photos").select("*"),
-    ]).then(([chaptersRes, photosRes]) => {
+      supabase.from("photos").select("position").limit(1),
+    ]).then(([chaptersRes, photosRes, positionProbe]) => {
       if (cancelled) return;
       if (chaptersRes.error || photosRes.error) {
         setStatus("setup-needed");
@@ -53,6 +56,7 @@ export default function AdminPanel() {
       setChapters(chs);
       setPhotos(sortPhotos((photosRes.data ?? []) as DbPhoto[]));
       setSelectedId((sel) => sel ?? chs[0]?.id ?? null);
+      setPositionSupported(!positionProbe.error);
       setStatus("ready");
     });
     return () => {
@@ -140,19 +144,27 @@ export default function AdminPanel() {
 
   // ---------- Photos ----------
 
+  const nextPosition = (chapterId: string) => {
+    const inChapter = photos.filter((p) => p.chapter_id === chapterId);
+    return inChapter.length > 0
+      ? Math.max(...inChapter.map((p) => p.position ?? 0)) + 1
+      : 0;
+  };
+
   const uploadFiles = async (files: File[]) => {
     if (!selectedId) return;
     const chapterId = selectedId;
+    const basePosition = nextPosition(chapterId);
     await Promise.all(
-      files.map(async (file) => {
+      files.map(async (file, fileIndex) => {
         const tempId = crypto.randomUUID();
         setUploads((u) => [...u, { tempId, fileName: file.name }]);
         try {
-          const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+          const { blob, ext, contentType } = await compressImage(file);
           const path = `${chapterId}/${crypto.randomUUID()}.${ext}`;
           const { error: upErr } = await supabase.storage
             .from(BUCKET)
-            .upload(path, file, { contentType: file.type });
+            .upload(path, blob, { contentType });
           if (upErr) throw upErr;
           const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
           const baseTitle = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
@@ -163,6 +175,9 @@ export default function AdminPanel() {
               image_url: pub.publicUrl,
               storage_path: path,
               title: baseTitle,
+              ...(positionSupported
+                ? { position: basePosition + fileIndex }
+                : {}),
             })
             .select()
             .single();
@@ -199,14 +214,20 @@ export default function AdminPanel() {
     async (photo: DbPhoto, chapterId: string) => {
       const target = chapters.find((c) => c.id === chapterId);
       if (!target) return;
+      const targetPhotos = photos.filter((p) => p.chapter_id === chapterId);
+      const position =
+        targetPhotos.length > 0
+          ? Math.max(...targetPhotos.map((p) => p.position ?? 0)) + 1
+          : 0;
+      const patch = positionSupported
+        ? { chapter_id: chapterId, position }
+        : { chapter_id: chapterId };
       setPhotos((ps) =>
-        sortPhotos(
-          ps.map((p) => (p.id === photo.id ? { ...p, chapter_id: chapterId } : p))
-        )
+        sortPhotos(ps.map((p) => (p.id === photo.id ? { ...p, ...patch } : p)))
       );
       const { error } = await supabase
         .from("photos")
-        .update({ chapter_id: chapterId })
+        .update(patch)
         .eq("id", photo.id);
       if (error) {
         setPhotos((ps) =>
@@ -217,7 +238,51 @@ export default function AdminPanel() {
       }
       showToast(`Souvenir déplacé vers « ${target.name} ».`);
     },
-    [chapters, showToast]
+    [chapters, photos, positionSupported, showToast]
+  );
+
+  const reorderPhoto = useCallback(
+    async (photo: DbPhoto, dir: -1 | 1) => {
+      if (!positionSupported) {
+        showToast(
+          "Ordre manuel indisponible — exécute supabase/migration-photo-position.sql dans le SQL Editor.",
+          true
+        );
+        return;
+      }
+      const list = photos.filter((p) => p.chapter_id === photo.chapter_id);
+      const idx = list.findIndex((p) => p.id === photo.id);
+      if (idx < 0 || !list[idx + dir]) return;
+      // Renumérotation séquentielle du chapitre avec les deux voisins
+      // échangés : corrige aussi les éventuels doublons de position.
+      const target = [...list];
+      [target[idx], target[idx + dir]] = [target[idx + dir], target[idx]];
+      const newPositions = new Map(target.map((p, i) => [p.id, i]));
+      const previous = photos;
+      setPhotos((ps) =>
+        sortPhotos(
+          ps.map((p) =>
+            newPositions.has(p.id)
+              ? { ...p, position: newPositions.get(p.id)! }
+              : p
+          )
+        )
+      );
+      const changed = target.filter((p, i) => (p.position ?? 0) !== i);
+      const results = await Promise.all(
+        changed.map((p) =>
+          supabase
+            .from("photos")
+            .update({ position: newPositions.get(p.id)! })
+            .eq("id", p.id)
+        )
+      );
+      if (results.some((r) => r.error)) {
+        setPhotos(previous);
+        showToast("Le changement d'ordre a échoué.", true);
+      }
+    },
+    [photos, positionSupported, showToast]
   );
 
   const deletePhoto = useCallback(
@@ -549,13 +614,16 @@ export default function AdminPanel() {
                     </div>
                   </div>
                 ))}
-                {chapterPhotos.map((p) => (
+                {chapterPhotos.map((p, i) => (
                   <PhotoCard
                     key={p.id}
                     photo={p}
                     chapters={chapters}
+                    isFirst={i === 0}
+                    isLast={i === chapterPhotos.length - 1}
                     onUpdate={updatePhoto}
                     onMove={movePhoto}
+                    onReorder={reorderPhoto}
                     onDelete={deletePhoto}
                   />
                 ))}

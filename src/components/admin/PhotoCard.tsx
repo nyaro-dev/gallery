@@ -7,19 +7,25 @@ import type { DbChapter, DbPhoto } from "@/lib/supabase";
 type PhotoCardProps = {
   photo: DbPhoto;
   chapters: DbChapter[];
+  isFirst: boolean;
+  isLast: boolean;
   onUpdate: (
     id: string,
     patch: Partial<Pick<DbPhoto, "year" | "title" | "description">>
   ) => Promise<boolean>;
   onMove: (photo: DbPhoto, chapterId: string) => void;
+  onReorder: (photo: DbPhoto, dir: -1 | 1) => void;
   onDelete: (photo: DbPhoto) => void;
 };
 
 export default function PhotoCard({
   photo,
   chapters,
+  isFirst,
+  isLast,
   onUpdate,
   onMove,
+  onReorder,
   onDelete,
 }: PhotoCardProps) {
   const [draft, setDraft] = useState({
@@ -50,8 +56,40 @@ export default function PhotoCard({
           alt={photo.title || "Souvenir"}
           fill
           sizes="(max-width: 760px) 100vw, 320px"
+          quality={60}
+          loading="lazy"
           style={{ objectFit: "cover", opacity: deleting ? 0.3 : 1, transition: "opacity 0.3s ease" }}
         />
+        <div
+          style={{
+            position: "absolute",
+            left: 8,
+            top: 8,
+            display: "flex",
+            gap: 6,
+          }}
+        >
+          <button
+            className="admin-btn"
+            style={{ padding: "5px 12px", fontSize: 11, background: "rgba(11,9,8,0.85)" }}
+            disabled={isFirst}
+            onClick={() => onReorder(photo, -1)}
+            title="Avancer dans le chapitre"
+            aria-label="Avancer la photo"
+          >
+            ←
+          </button>
+          <button
+            className="admin-btn"
+            style={{ padding: "5px 12px", fontSize: 11, background: "rgba(11,9,8,0.85)" }}
+            disabled={isLast}
+            onClick={() => onReorder(photo, 1)}
+            title="Reculer dans le chapitre"
+            aria-label="Reculer la photo"
+          >
+            →
+          </button>
+        </div>
         <div
           style={{
             position: "absolute",
