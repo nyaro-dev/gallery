@@ -2,18 +2,26 @@
 
 import Image from "next/image";
 import { useRef, useState } from "react";
-import type { DbPhoto } from "@/lib/supabase";
+import type { DbChapter, DbPhoto } from "@/lib/supabase";
 
 type PhotoCardProps = {
   photo: DbPhoto;
+  chapters: DbChapter[];
   onUpdate: (
     id: string,
     patch: Partial<Pick<DbPhoto, "year" | "title" | "description">>
   ) => Promise<boolean>;
+  onMove: (photo: DbPhoto, chapterId: string) => void;
   onDelete: (photo: DbPhoto) => void;
 };
 
-export default function PhotoCard({ photo, onUpdate, onDelete }: PhotoCardProps) {
+export default function PhotoCard({
+  photo,
+  chapters,
+  onUpdate,
+  onMove,
+  onDelete,
+}: PhotoCardProps) {
   const [draft, setDraft] = useState({
     year: photo.year,
     title: photo.title,
@@ -132,6 +140,32 @@ export default function PhotoCard({ photo, onUpdate, onDelete }: PhotoCardProps)
           onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
           onBlur={() => commit("description")}
         />
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            style={{
+              flex: "0 0 auto",
+              fontSize: 10,
+              letterSpacing: "0.22em",
+              color: "#8f887c",
+            }}
+          >
+            CHAPITRE
+          </span>
+          <select
+            className="admin-input"
+            style={{ cursor: "pointer", padding: "7px 10px", fontSize: 12 }}
+            value={photo.chapter_id}
+            onChange={(e) => {
+              if (e.target.value !== photo.chapter_id) onMove(photo, e.target.value);
+            }}
+          >
+            {chapters.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );

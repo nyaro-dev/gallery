@@ -195,6 +195,31 @@ export default function AdminPanel() {
     [showToast]
   );
 
+  const movePhoto = useCallback(
+    async (photo: DbPhoto, chapterId: string) => {
+      const target = chapters.find((c) => c.id === chapterId);
+      if (!target) return;
+      setPhotos((ps) =>
+        sortPhotos(
+          ps.map((p) => (p.id === photo.id ? { ...p, chapter_id: chapterId } : p))
+        )
+      );
+      const { error } = await supabase
+        .from("photos")
+        .update({ chapter_id: chapterId })
+        .eq("id", photo.id);
+      if (error) {
+        setPhotos((ps) =>
+          sortPhotos(ps.map((p) => (p.id === photo.id ? photo : p)))
+        );
+        showToast("Le déplacement a échoué.", true);
+        return;
+      }
+      showToast(`Souvenir déplacé vers « ${target.name} ».`);
+    },
+    [chapters, showToast]
+  );
+
   const deletePhoto = useCallback(
     async (photo: DbPhoto) => {
       const { error } = await supabase.from("photos").delete().eq("id", photo.id);
@@ -528,7 +553,9 @@ export default function AdminPanel() {
                   <PhotoCard
                     key={p.id}
                     photo={p}
+                    chapters={chapters}
                     onUpdate={updatePhoto}
+                    onMove={movePhoto}
                     onDelete={deletePhoto}
                   />
                 ))}

@@ -108,6 +108,13 @@ textarea.admin-input {
   min-height: 60px;
   line-height: 1.55;
 }
+select.admin-input {
+  color-scheme: dark;
+}
+select.admin-input option {
+  background: #16120f;
+  color: #ece6dc;
+}
 
 .admin-btn {
   border: 1px solid rgba(216, 210, 200, 0.35);
