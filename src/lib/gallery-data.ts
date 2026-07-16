@@ -1,4 +1,4 @@
-import { supabase, type DbChapter, type DbPhoto } from "./supabase";
+import { sortPhotos, supabase, type DbChapter, type DbPhoto } from "./supabase";
 import {
   chapters as placeholderChapters,
   photos as placeholderPhotos,
@@ -24,13 +24,15 @@ export async function getGalleryData(): Promise<GalleryData> {
         .select("*")
         .order("position")
         .order("created_at"),
-      supabase.from("photos").select("*").order("year").order("created_at"),
+      supabase.from("photos").select("*"),
     ]);
     if (chaptersRes.error) throw chaptersRes.error;
     if (photosRes.error) throw photosRes.error;
 
     const chapters = (chaptersRes.data ?? []) as DbChapter[];
-    const dbPhotos = (photosRes.data ?? []) as DbPhoto[];
+    // Tri côté client : tolère l'absence de la colonne position
+    // tant que la migration n'a pas été exécutée.
+    const dbPhotos = sortPhotos((photosRes.data ?? []) as DbPhoto[]);
 
     const photos: Photo[] = [];
     chapters.forEach((ch, ci) => {

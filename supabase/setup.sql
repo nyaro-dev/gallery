@@ -21,6 +21,7 @@ create table if not exists public.photos (
   description text not null default '',
   image_url text not null,
   storage_path text,
+  position int not null default 0,
   created_at timestamptz not null default now()
 );
 

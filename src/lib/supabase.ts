@@ -22,5 +22,17 @@ export type DbPhoto = {
   description: string;
   image_url: string;
   storage_path: string | null;
+  /** Absent tant que la migration photo-position n'a pas été exécutée. */
+  position?: number | null;
   created_at: string;
 };
+
+/** Ordre d'affichage : position manuelle, puis année, puis date d'ajout. */
+export function sortPhotos(list: DbPhoto[]): DbPhoto[] {
+  return [...list].sort(
+    (a, b) =>
+      (a.position ?? 0) - (b.position ?? 0) ||
+      a.year.localeCompare(b.year) ||
+      a.created_at.localeCompare(b.created_at)
+  );
+}
