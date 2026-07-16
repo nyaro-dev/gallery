@@ -1,4 +1,10 @@
-import type { CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import PhotoImage from "@/components/ui/PhotoImage";
 import type { Photo } from "@/lib/photos";
 
@@ -22,6 +28,21 @@ const BASE_STYLE: CSSProperties = {
   backfaceVisibility: "hidden",
 };
 
+// Chargement en deux temps : les photos proches de l'active (et les
+// débuts de chapitre, visibles au loin) chargent en priorité ; une
+// fois ces images chargées, le reste de la pile se monte par vagues,
+// des plus proches aux plus lointaines.
+const WINDOW_BEHIND = 3;
+const WINDOW_AHEAD = 14;
+const BATCH_SIZE = 10;
+const BATCH_DELAY_MS = 350;
+// Filet : ne bloque jamais la suite si une image prioritaire traîne.
+const PRIORITY_FALLBACK_MS = 6000;
+
+function isPriority(rel: number, isChapterStart: boolean) {
+  return rel >= -WINDOW_BEHIND && (rel <= WINDOW_AHEAD || isChapterStart);
+}
+
 export default function PhotoStack({
   photos,
   active,
@@ -30,6 +51,44 @@ export default function PhotoStack({
   isNarrow,
   onOpen,
 }: PhotoStackProps) {
+  const [deferredReady, setDeferredReady] = useState(false);
+  const [revealBatch, setRevealBatch] = useState(0);
+  const settledRef = useRef<Set<string>>(new Set());
+  const priorityIdsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    priorityIdsRef.current = photos
+      .filter((p, i) => isPriority(i - active, p.isChapterStart))
+      .map((p) => p.id);
+  }, [photos, active]);
+
+  const markSettled = useCallback((id: string) => {
+    settledRef.current.add(id);
+    if (priorityIdsRef.current.every((pid) => settledRef.current.has(pid))) {
+      setDeferredReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDeferredReady(true), PRIORITY_FALLBACK_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!deferredReady || revealBatch * BATCH_SIZE >= photos.length) return;
+    const t = setTimeout(() => setRevealBatch((b) => b + 1), BATCH_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [deferredReady, revealBatch, photos.length]);
+
+  // Ordre de révélation des photos différées : des plus proches de
+  // l'active aux plus lointaines.
+  const deferredOrder = new Map<string, number>();
+  photos
+    .map((p, i) => ({ id: p.id, rel: i - active, cs: p.isChapterStart }))
+    .filter((x) => !isPriority(x.rel, x.cs))
+    .sort((a, b) => Math.abs(a.rel) - Math.abs(b.rel))
+    .forEach((x, order) => deferredOrder.set(x.id, order));
+
   const activeChapter = photos[active].chapterIndex;
   const relX = isNarrow ? 7 : 10;
   const relY = isNarrow ? 4 : 5;
@@ -160,15 +219,32 @@ export default function PhotoStack({
                   }}
                 />
               )}
-              <PhotoImage
-                src={p.src}
-                alt={`${p.year} — ${p.title}`}
-                sizes="320px"
-                priority={isFront}
-                desaturated
-                colorOnHover
-                style={{ width: "100%", height: "100%" }}
-              />
+              {isPriority(rel, p.isChapterStart) ||
+              (deferredReady &&
+                (deferredOrder.get(p.id) ?? Infinity) <
+                  revealBatch * BATCH_SIZE) ? (
+                <PhotoImage
+                  src={p.src}
+                  alt={[p.year, p.title].filter(Boolean).join(" — ") || "Souvenir"}
+                  sizes="320px"
+                  preload={isFront}
+                  quality={45}
+                  desaturated
+                  colorOnHover
+                  onSettled={() => markSettled(p.id)}
+                  style={{ width: "100%", height: "100%" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    background:
+                      "linear-gradient(135deg, #16120f 0%, #0f0c0a 100%)",
+                    border: "1px solid rgba(216,210,200,0.04)",
+                  }}
+                />
+              )}
               {isFront && (
                 <a
                   href="#"

@@ -1,16 +1,23 @@
+"use client";
+
 import Image from "next/image";
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 
 type PhotoImageProps = {
   src: string;
   alt: string;
   /** Taille rendue pour l'optimiseur d'images, ex. "320px" ou "100vw". */
   sizes?: string;
-  priority?: boolean;
+  /** Précharge l'image (LCP, vue immersive). */
+  preload?: boolean;
+  /** Qualité d'optimisation — doit figurer dans images.qualities. */
+  quality?: number;
   /** Rendu noir & blanc (filtre CSS). */
   desaturated?: boolean;
   /** Retour à la couleur au survol (avec `desaturated`). */
   colorOnHover?: boolean;
+  /** Appelé quand l'image est chargée (ou en échec définitif). */
+  onSettled?: () => void;
   className?: string;
   style?: CSSProperties;
 };
@@ -24,12 +31,18 @@ export default function PhotoImage({
   src,
   alt,
   sizes = "100vw",
-  priority = false,
+  preload = false,
+  quality = 75,
   desaturated = false,
   colorOnHover = false,
+  onSettled,
   className = "",
   style,
 }: PhotoImageProps) {
+  // Si l'optimiseur échoue (timeout sur un original lourd), on retombe
+  // sur l'image d'origine servie telle quelle.
+  const [optimizationFailed, setOptimizationFailed] = useState(false);
+
   const filterClass = desaturated
     ? colorOnHover
       ? "photo-desaturated photo-color-on-hover"
@@ -46,7 +59,16 @@ export default function PhotoImage({
         alt={alt}
         fill
         sizes={sizes}
-        priority={priority}
+        preload={preload}
+        loading={preload ? "eager" : "lazy"}
+        quality={quality}
+        unoptimized={optimizationFailed}
+        onLoad={onSettled}
+        onError={() => {
+          // Second échec (déjà en non-optimisé) : on considère l'image réglée.
+          if (optimizationFailed) onSettled?.();
+          setOptimizationFailed(true);
+        }}
         style={{ objectFit: "cover" }}
       />
     </div>
