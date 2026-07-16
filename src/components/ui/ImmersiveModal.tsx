@@ -127,6 +127,9 @@ export default function ImmersiveModal({
           fontSize: 20,
           fontWeight: 300,
           lineHeight: 1,
+          background: "rgba(11,9,8,0.45)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
           transition: "border-color 0.35s ease, background 0.35s ease",
         }}
       >

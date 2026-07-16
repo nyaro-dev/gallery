@@ -48,7 +48,7 @@ a:hover {
 }
 .modal-close:hover {
   border-color: #f4efe6 !important;
-  background: rgba(244, 239, 230, 0.1);
+  background: rgba(244, 239, 230, 0.12) !important;
 }
 .discover-link:hover {
   color: #ffffff;

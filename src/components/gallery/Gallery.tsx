@@ -41,20 +41,47 @@ export default function Gallery({ chapters, photos }: GalleryProps) {
   const openModal = useCallback(() => setModalIndex(active), [active]);
   const closeModal = useCallback(() => setModalIndex(null), []);
 
+  const goNext = useCallback(
+    () => setActive((a) => Math.min(a + 1, photos.length - 1)),
+    [photos.length]
+  );
+  const goPrev = useCallback(() => setActive((a) => Math.max(a - 1, 0)), []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (modalOpen || photos.length === 0) return; // Échap est géré par le modal
       if (["ArrowRight", "ArrowDown", " "].includes(e.key)) {
         e.preventDefault();
-        setActive((a) => Math.min(a + 1, photos.length - 1));
+        goNext();
       } else if (["ArrowLeft", "ArrowUp"].includes(e.key)) {
         e.preventDefault();
-        setActive((a) => Math.max(a - 1, 0));
+        goPrev();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [modalOpen, photos.length]);
+  }, [modalOpen, photos.length, goNext, goPrev]);
+
+  // Navigation tactile : balayage horizontal sur la scène.
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStart.current = { x: t.clientX, y: t.clientY };
+  }, []);
+  const onTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const start = touchStart.current;
+      touchStart.current = null;
+      if (!start || modalOpen || photos.length === 0) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      if (dx < 0) goNext();
+      else goPrev();
+    },
+    [modalOpen, photos.length, goNext, goPrev]
+  );
 
   const goChapter = useCallback(
     (ci: number) => {
@@ -87,7 +114,7 @@ export default function Gallery({ chapters, photos }: GalleryProps) {
         position: "absolute",
         left: "50%",
         transform: "translateX(-50%)",
-        bottom: "clamp(20px,4vh,40px)",
+        bottom: "clamp(62px,10vh,92px)",
         maxWidth: "84vw",
         textAlign: "center",
       }
@@ -105,6 +132,8 @@ export default function Gallery({ chapters, photos }: GalleryProps) {
   return (
     <div
       ref={rootRef}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
       style={{
         position: "relative",
         width: "100%",
@@ -207,9 +236,13 @@ export default function Gallery({ chapters, photos }: GalleryProps) {
           backdrop={
             <PhotoImage
               src={modalPhoto.colorSrc}
-              alt={`${modalPhoto.year} — ${modalPhoto.title}`}
+              alt={
+                [modalPhoto.year, modalPhoto.title].filter(Boolean).join(" — ") ||
+                "Souvenir"
+              }
               sizes="100vw"
-              priority
+              preload
+              quality={85}
               style={{ position: "absolute", inset: 0 }}
             />
           }
@@ -252,6 +285,51 @@ export default function Gallery({ chapters, photos }: GalleryProps) {
             {modalPhoto.desc}
           </div>
         </ImmersiveModal>
+      )}
+
+      {/* flèches tactiles (mobile) */}
+      {isNarrow && photos.length > 0 && (
+        <>
+          {(
+            [
+              { label: "‹", action: goPrev, side: { left: 12 }, disabled: active === 0 },
+              { label: "›", action: goNext, side: { right: 12 }, disabled: active === photos.length - 1 },
+            ] as const
+          ).map((btn) => (
+            <button
+              key={btn.label}
+              aria-label={btn.label === "‹" ? "Photo précédente" : "Photo suivante"}
+              onClick={btn.action}
+              disabled={btn.disabled}
+              style={{
+                position: "absolute",
+                top: "61%",
+                transform: "translateY(-50%)",
+                ...btn.side,
+                width: 42,
+                height: 42,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px solid rgba(216,210,200,0.4)",
+                borderRadius: "50%",
+                background: "rgba(11,9,8,0.55)",
+                backdropFilter: "blur(6px)",
+                WebkitBackdropFilter: "blur(6px)",
+                color: "#d8d2c8",
+                fontSize: 22,
+                fontWeight: 200,
+                lineHeight: 1,
+                paddingBottom: 3,
+                zIndex: 30,
+                opacity: btn.disabled ? 0.25 : 1,
+                transition: "opacity 0.3s ease",
+              }}
+            >
+              {btn.label}
+            </button>
+          ))}
+        </>
       )}
 
       {/* grain */}
@@ -297,7 +375,7 @@ export default function Gallery({ chapters, photos }: GalleryProps) {
             color: "#7d766c",
           }}
         >
-          1962 — AUJOURD&apos;HUI
+          1976 — AUJOURD&apos;HUI
         </div>
       )}
 
@@ -327,23 +405,38 @@ export default function Gallery({ chapters, photos }: GalleryProps) {
         </div>
       </div>
 
-      {/* bas droite */}
-      {!isNarrow && (
-        <Link
-          href="/gestion"
-          className="discover-link"
-          style={{
-            position: "absolute",
-            right: "clamp(18px,4vw,56px)",
-            bottom: "clamp(24px,4vh,36px)",
-            display: "flex",
-            alignItems: "center",
-            gap: 14,
-            fontSize: 10,
-            letterSpacing: "0.3em",
-            color: "#a8a196",
-          }}
-        >
+      {/* bas droite (desktop) / sous le slogan (mobile) */}
+      <Link
+        href="/gestion"
+        className="discover-link"
+        style={
+          isNarrow
+            ? {
+                position: "absolute",
+                left: "50%",
+                transform: "translateX(-50%)",
+                bottom: "clamp(18px,3vh,30px)",
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                fontSize: 10,
+                letterSpacing: "0.3em",
+                color: "#a8a196",
+                whiteSpace: "nowrap",
+              }
+            : {
+                position: "absolute",
+                right: "clamp(18px,4vw,56px)",
+                bottom: "clamp(24px,4vh,36px)",
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                fontSize: 10,
+                letterSpacing: "0.3em",
+                color: "#a8a196",
+              }
+        }
+      >
           <span
             className="discover-plus"
             style={{
@@ -367,9 +460,8 @@ export default function Gallery({ chapters, photos }: GalleryProps) {
           >
             +
           </span>
-          <span style={{ lineHeight: 1 }}>DÉCOUVRIR L&apos;HISTOIRE</span>
-        </Link>
-      )}
+        <span style={{ lineHeight: 1 }}>DÉCOUVRIR L&apos;HISTOIRE</span>
+      </Link>
     </div>
   );
 }
